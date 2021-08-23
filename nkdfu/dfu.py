@@ -1,4 +1,6 @@
 from struct import pack, unpack, calcsize
+
+from tqdm import tqdm
 from zlib import crc32
 from time import sleep
 import traceback
@@ -216,6 +218,7 @@ def getDFUDescriptor(usb_device):
     found = False
     descriptor_list = []
     append = descriptor_list.append
+    print (usb_device)
     for setting in usb_device.iterSettings():
         if setting.getClassTupple() == DFU_CLASS_TUPPLE:
             found = True
@@ -223,7 +226,7 @@ def getDFUDescriptor(usb_device):
     if not found:
         raise DFUUnsupportedError("This device doesn't support DFU")
     for extra in setting.getExtra():
-        if extra[1] == DFU_DESCRIPTOR_TYPE_STR:
+        if True or extra[1] == DFU_DESCRIPTOR_TYPE_STR:
             break
     else:
         raise ValueError('Inconsistent USB descriptor: last DFU '
@@ -270,9 +273,7 @@ class DFUProtocol(object):
         handle.claimInterface(iface)
 
     def __del__(self):
-        interface = self.__interface
-        if interface is not None:
-            self.__handle.releaseInterface(interface)
+        pass
 
     def _controlWrite(self, request, value, data='', timeout=DFU_TIMEOUT):
         self.__handle.controlWrite(DFU_REQUEST_TYPE, request, value,
@@ -465,8 +466,10 @@ class DFUProtocol(object):
         self.checkStatus()
         while True:
             state = self.getState()
+            # print (state)
             assert state in (
                     DFU_STATE_DFU_DNLOAD_SYNC,
+                    DFU_STATE_DFU_DNLOAD_IDLE,
                     DFU_STATE_DFU_DNBUSY,
                     DFU_STATE_DFU_MANIFEST_SYNC,
                 ), state
@@ -503,7 +506,7 @@ class DFUProtocol(object):
                 raise DoubleException(
                     ''.join(traceback.format_exception(*exc_info)),
                     traceback.format_exc())
-            raise exc_info[0], exc_info[1], exc_info[2]
+            raise exc_info[0](exc_info[1]).with_traceback(exc_info[2])
         return result, blocknum
 
     def getStatus(self):
@@ -620,70 +623,37 @@ class DFU(object):
             state = iface.getState()
         if state != DFU_STATE_DFU_IDLE:
             raise DFUBadSate(state)
-        device = self.__handle.getDevice()
-        signature, suffix_length, crc = unpack(DFU_SUFFIX_BASE_FORMAT,
-            data[-DFU_SUFFIX_BASE_LENGTH:])
-        if signature != 'UFD':
-            raise DFUFormatError('Invalid suffix magic')
-        if crc32(data[:-4]) != crc:
-            raise DFUFormatError('CRC missmatch')
-        if suffix_length > DFU_SUFFIX_BASE_LENGTH:
-            suffix_dict = _parseFieldList(''.join(reversed(
-                data[-suffix_length:-DFU_SUFFIX_BASE_LENGTH])),
-                DFU_SUFFIX_FIELD_LIST)
-            vendor_id = suffix_dict.get('vendor', 0xffff)
-            product_id = suffix_dict.get('product_id', 0xffff)
-            if vendor_id not in (0xffff, device.getVendorID()) or \
-                    product_id not in (0xffff, device.getProductID()):
-                raise DFUIncompatibleDevice('Firmware is for device '
-                    '%04x:%04x' % (vendor_id, product_id))
-            # dfu_version is first suffix field, and we have at least one full
-            # suffix field... so it's there !
-            if suffix_dict['dfu_version'] == 0x11a:
-                # Untested/unfinished code ahead, raise.
-                raise NotImplementedError
-                # STM file format, described UM0391.
-                stm_head = _parseFieldList(data[:DFU_STM_PREFIX_LENGTH],
-                    DFU_STM_PREFIX_FIELD_LIST)
-                if stm_head['dfuse_magic'] != 'DfuSe':
-                    raise DFUFormatError('Invalid DfuSe magic')
-                if stm_head['dfuse_version'] != 0x1:
-                    raise NotImplementedError('DfuSe version %r' % (
-                        stm_head['dfuse_version'], ))
-                offset = DFU_STM_PREFIX_LENGTH
-                for _ in xrange(stm_head['target_count']):
-                    target_head = _parseFieldList(
-                        data[offset:offset + DFU_STM_TARGET_PREFIX_LENGTH],
-                        DFU_STM_TARGET_PREFIX_FIELD_LIST)
-                    if target_head['magic'] != 'Target':
-                        raise DFUFormatError('Invalid DfuSe target magic '
-                            'at 0x%x' % (offset, ))
-                    offset += DFU_STM_TARGET_PREFIX_LENGTH
-                    for _ in xrange(target_head['element_count']):
-                        element_head = _parseFieldList(data[offset:offset +
-                            DFU_STM_ELEMENT_PREFIX_LENGTH],
-                            DFU_STM_ELEMENT_PREFIX_FIELD_LIST)
-                        offset += DFU_STM_ELEMENT_PREFIX_LENGTH
-                        iface.STM_setAddress(element_head['address'])
-                        #iface.STM_erasePage(element_head['address'])
-                        self._download(data[offset:offset +
-                            element_head['size']])
-                        offset += element_head['size']
-            else:
-                self._download(data[:-suffix_length])
-        # Notify of EOF with an empty transfer
-        self._download('')
-        if not iface.isManifestationTolerant():
-            self._reset('Download complete.')
+
+        self._download(data)
+        try:
+            self._download(b'')
+        except Exception as e:
+            print (e)
+
+        try:
+            if not iface.isManifestationTolerant():
+                self._reset('Download complete.')
+        except Exception as e:
+            print (e)
+
+        return "Finished"
 
     def _download(self, data):
         iface = self.__dfu_interface
         download = iface.download
         transfer_size = iface.getTransferSize()
         blocknum = None
-        while data:
+        iterations = len(data) // transfer_size + 1
+        tqdm_disable = iterations < 10
+        if not tqdm_disable:
+            print("Download started")
+        for i in tqdm(range(iterations), disable=tqdm_disable):
+            if not data:
+                continue
             blocknum = download(data[:transfer_size], blocknum)
             data = data[transfer_size:]
+        if not tqdm_disable:
+            print("Download Finished")
 
     def upload(self, vendor_specific=True, product_specific=True,
             version=0xffff, stm_format=False):
