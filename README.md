@@ -7,16 +7,25 @@ Based on [python-dfu] project, which brings implementation of USB DFU 1.1 spec.
 ## Call
 
 ```
-nkdfu FIRMWARE_PATH <flags>
+$ nkdfu FIRMWARE_PATH <flags>
 ```
 
 See `nkdfu --help` for details.
 
 ## Installation
-Package is not published yet, however it is possible to install it directly from the releases page:
+
+### From Repository
 
 ```bash
-pip3 install https://github.com/Nitrokey/nkdfu/releases/download/v0.1/nkdfu-0.1-py3-none-any.whl
+$ pip3 install nkdfu
+```
+
+
+### Directly from releases
+It is possible to install it directly from the releases page:
+
+```bash
+$ pip3 install https://github.com/Nitrokey/nkdfu/releases/download/v0.1/nkdfu-0.1-py3-none-any.whl
 ```
 
 ## License
