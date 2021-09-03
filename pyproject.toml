@@ -7,7 +7,7 @@ module = "nkdfu"
 dist-name = "nkdfu"
 author = "Nitrokey"
 author-email = "pypi@nitrokey.com"
-home-page = "https://github.com/Nitrokey"
+home-page = "https://github.com/Nitrokey/nkdfu"
 requires-python = ">=3.6"
 description-file = "README.md"
 requires = [
